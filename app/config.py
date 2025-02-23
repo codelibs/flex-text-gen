@@ -1,5 +1,6 @@
 import yaml
 
+
 def load_config(config_path="config.yaml"):
     """
     Load the YAML configuration file and return its contents as a dictionary.
