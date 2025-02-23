@@ -1,0 +1,10 @@
+# Exclude git directory and cache files from Docker build context
+.git
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.env
+.venv
+venv
+README.md
