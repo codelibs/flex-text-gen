@@ -5,6 +5,11 @@ services:
       - "8000:8000"
     depends_on:
       - ollama
+    volumes:
+      - ./config.yaml:/app/config.yaml
+    # environment:
+    #   - USER_UID=1000
+    #   - USER_GID=1000
 
   ollama:
     image: ollama/ollama:latest
@@ -12,3 +17,10 @@ services:
       - "11434:11434"
     volumes:
       - ${HOME}/.ollama:/root/.ollama
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
