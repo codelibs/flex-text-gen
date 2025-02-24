@@ -1,6 +1,8 @@
 import logging
+import requests
 import time
 
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import RootModel
@@ -18,7 +20,23 @@ app_config = load_config("config.yaml")
 logger.info(f"Ollama URL: {app_config.ollama.url}")
 
 
-app = FastAPI()
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    pull_url = f"{app_config.ollama.url}/api/pull"
+    payload = {"model": app_config.ollama.model}
+    logger.info(f"Sending pull request to Ollama at {pull_url} with payload: {payload}")
+    try:
+        response = requests.post(pull_url, json=payload)
+        response.raise_for_status()
+        logger.info("Successfully pulled model from Ollama.")
+    except Exception as e:
+        logger.exception("Failed to pull model from Ollama.")
+        raise e
+    yield
+    logger.info("Shutting down...")
+
+
+app = FastAPI(lifespan=lifespan)
 
 
 # Use RootModel to accept any JSON structure
@@ -32,9 +50,15 @@ async def custom_http_exception_handler(request: Request, exc: HTTPException):
         status_code=exc.status_code,
         content={
             "status": "error",
-            "data": exc.detail.get("data", "An error occurred") if isinstance(exc.detail, dict) else "An error occurred",
-            "duration": exc.detail.get("duration", 0) if isinstance(exc.detail, dict) else 0,
-        }
+            "data": (
+                exc.detail.get("data", "An error occurred")
+                if isinstance(exc.detail, dict)
+                else "An error occurred"
+            ),
+            "duration": (
+                exc.detail.get("duration", 0) if isinstance(exc.detail, dict) else 0
+            ),
+        },
     )
 
 
@@ -50,27 +74,39 @@ async def generate(request_data: RequestData, request: Request):
     prompt_template = Template(app_config.prompt)
 
     # Safely substitute placeholders in the templates with values from the request data
-    system_instruction = system_instruction_template.safe_substitute(data)
-    prompt = prompt_template.safe_substitute(data)
+    system_instruction = system_instruction_template.safe_substitute(data).strip()
+    prompt = prompt_template.safe_substitute(data).strip()
 
     logger.info(f"System instruction: {system_instruction}")
     logger.info(f"Prompt: {prompt}")
 
+    if len(prompt) == 0:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "data": "Prompt is empty",
+                "duration": time.time() - start_time,
+            },
+        )
+
     # Prepare the messages for the LLM
-    messages = [
-        {"role": "system", "content": system_instruction},
-        {"role": "user", "content": prompt},
-    ]
+    messages = []
+    if len(system_instruction) > 0:
+        messages.append({"role": "system", "content": system_instruction})
+    messages.append({"role": "user", "content": prompt})
 
     try:
         # Retrieve the model pipeline from app.state instead of creating it again
         output = generate_text(app_config.ollama, messages)
     except Exception as e:
         logger.exception("Error during text generation:")
-        raise HTTPException(status_code=500, detail={
-            "data": str(e),
-            "duration": time.time() - start_time,
-        })
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "data": str(e),
+                "duration": time.time() - start_time,
+            },
+        )
 
     return {
         "status": "success",
