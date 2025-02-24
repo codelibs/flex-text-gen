@@ -1,34 +1,24 @@
 import logging
+import time
+
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import JSONResponse
 from pydantic import RootModel
 from string import Template
-from contextlib import asynccontextmanager
 
 from app.config import load_config
-from app.llm import create_pipeline, generate_text
+from app.llm import generate_text
 
 # Configure logging for the application
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("flex-text-gen")
+logger = logging.getLogger("main")
 
 # Load configuration once at module level (if static)
-config = load_config("config.yaml")
-generation_parameters = config.get("parameters", {})
-model_name = config.get("model", "microsoft/phi-4")
+app_config = load_config("config.yaml")
+logger.info(f"Ollama URL: {app_config.ollama.url}")
 
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    logger.info("Loading LLM pipeline...")
-    # Load the model only once at startup and store it in app.state
-    app.state.llm_pipeline = create_pipeline(model_name)
-    logger.info("LLM pipeline loaded successfully.")
-    yield
-    # Optionally, add any shutdown cleanup here
-    logger.info("Shutting down...")
-
-
-app = FastAPI(lifespan=lifespan)
+app = FastAPI()
 
 
 # Use RootModel to accept any JSON structure
@@ -36,14 +26,28 @@ class RequestData(RootModel[dict]):
     pass
 
 
+@app.exception_handler(HTTPException)
+async def custom_http_exception_handler(request: Request, exc: HTTPException):
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "status": "error",
+            "data": exc.detail.get("data", "An error occurred") if isinstance(exc.detail, dict) else "An error occurred",
+            "duration": exc.detail.get("duration", 0) if isinstance(exc.detail, dict) else 0,
+        }
+    )
+
+
 @app.post("/generate")
 async def generate(request_data: RequestData, request: Request):
     data = request_data.root  # Access the underlying dictionary
     logger.info(f"Received request data: {data}")
 
+    start_time = time.time()
+
     # Retrieve system instruction and prompt templates from configuration
-    system_instruction_template = Template(config.get("system_instruction", ""))
-    prompt_template = Template(config.get("prompt", ""))
+    system_instruction_template = Template(app_config.system_instruction)
+    prompt_template = Template(app_config.prompt)
 
     # Safely substitute placeholders in the templates with values from the request data
     system_instruction = system_instruction_template.safe_substitute(data)
@@ -60,13 +64,19 @@ async def generate(request_data: RequestData, request: Request):
 
     try:
         # Retrieve the model pipeline from app.state instead of creating it again
-        output = generate_text(app.state.llm_pipeline, messages, generation_parameters)
+        output = generate_text(app_config.ollama, messages)
     except Exception as e:
         logger.exception("Error during text generation:")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail={
+            "data": str(e),
+            "duration": time.time() - start_time,
+        })
 
-    logger.info("Text generation successful.")
-    return {"result": output}
+    return {
+        "status": "success",
+        "data": output,
+        "duration": time.time() - start_time,
+    }
 
 
 if __name__ == "__main__":

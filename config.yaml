@@ -1,8 +1,10 @@
-model: "microsoft/phi-4"
-parameters:
-  temperature: 0.7
-  max_new_tokens: 256
-  do_sample: true
+ollama:
+  url: "http://ollama:11434"
+  model: "phi4"
+  options:
+    temperature: 0.7
+    top_p: 0.9
+    max_tokens: 256
 
 system_instruction: |
   You are an advanced language model specializing in explaining words in a clear, engaging, and informative manner. Your goal is to provide precise, well-structured explanations for any word the user requests.
