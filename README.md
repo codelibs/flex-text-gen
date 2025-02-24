@@ -50,7 +50,6 @@ A sample compose.yaml is provided to run FlexTextGen together with an Ollama con
 For example:
 
 ```
-version: "3.8"
 services:
   flex-text-gen:
     build: .
@@ -78,9 +77,10 @@ docker compose up
 FlexTextGen exposes a /generate endpoint that accepts JSON requests. For example, to get an explanation of a word:
 
 ```
+curl -H "Content-Type: application/json" localhost:8000/generate -d '
 {
   "word": "Java"
-}
+}'
 ```
 
 The server will substitute the placeholder in the prompt template and send a request to the Ollama API. The generated result is then returned in the response.
