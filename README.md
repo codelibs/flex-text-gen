@@ -31,6 +31,7 @@ ollama:
 system_instruction: |
   You are an advanced language model that explains words in detail.
 prompt: "Explain the word '${word}' in detail."
+```
 
 ## Docker Setup
 
